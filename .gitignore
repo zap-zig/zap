@@ -1,0 +1,107 @@
+# Zig build artifacts
+zig-out/
+.zig-cache/
+
+# Python virtual environments
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# zap cache
+.zap-cache/
+
+# Global cache (optional - system-wide cache)
+~/.cache/zap/
+
+# Lock files (optional - some prefer to commit these)
+# zap.lock
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.metadata
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+*.sublime-project
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*~
+
+# Testing artifacts
+/tmp/
+/temp/
+/tmp
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Documentation build
+docs/dist/
+docs/.astro/
+
+# Release builds
+*.tar.gz
+*.zip
+
+# Secrets and keys
+.env
+.env.local
+.env.production
+.env.staging
+secrets.json
+config/keys.json
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
