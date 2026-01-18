@@ -172,3 +172,67 @@ pub const InstalledPackages = struct {
         }
     }
 };
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "InstalledPackages - init and deinit" {
+    const allocator = std.testing.allocator;
+    var installed = InstalledPackages.init(allocator);
+    defer installed.deinit();
+
+    try std.testing.expect(!installed.isInstalled("requests"));
+}
+
+test "InstalledPackages - markInstalled and isInstalled" {
+    const allocator = std.testing.allocator;
+    var installed = InstalledPackages.init(allocator);
+    defer installed.deinit();
+
+    try installed.markInstalled("requests", "2.31.0");
+
+    try std.testing.expect(installed.isInstalled("requests"));
+    try std.testing.expect(!installed.isInstalled("flask"));
+}
+
+test "InstalledPackages - getVersion" {
+    const allocator = std.testing.allocator;
+    var installed = InstalledPackages.init(allocator);
+    defer installed.deinit();
+
+    try installed.markInstalled("numpy", "1.24.0");
+
+    const version = installed.getVersion("numpy");
+    try std.testing.expect(version != null);
+    try std.testing.expectEqualStrings("1.24.0", version.?);
+
+    try std.testing.expect(installed.getVersion("pandas") == null);
+}
+
+test "InstalledPackages - update existing package" {
+    const allocator = std.testing.allocator;
+    var installed = InstalledPackages.init(allocator);
+    defer installed.deinit();
+
+    try installed.markInstalled("flask", "2.0.0");
+    try std.testing.expectEqualStrings("2.0.0", installed.getVersion("flask").?);
+
+    try installed.markInstalled("flask", "3.0.0");
+    try std.testing.expectEqualStrings("3.0.0", installed.getVersion("flask").?);
+}
+
+test "InstalledPackages - multiple packages" {
+    const allocator = std.testing.allocator;
+    var installed = InstalledPackages.init(allocator);
+    defer installed.deinit();
+
+    try installed.markInstalled("requests", "2.31.0");
+    try installed.markInstalled("flask", "3.0.0");
+    try installed.markInstalled("django", "4.2.0");
+
+    try std.testing.expect(installed.isInstalled("requests"));
+    try std.testing.expect(installed.isInstalled("flask"));
+    try std.testing.expect(installed.isInstalled("django"));
+    try std.testing.expect(!installed.isInstalled("fastapi"));
+}

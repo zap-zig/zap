@@ -111,6 +111,11 @@ pub fn readLockFile(allocator: std.mem.Allocator) !LockFile {
     const content = try file.readToEndAlloc(allocator, 1024 * 1024);
     defer allocator.free(content);
 
+    return try parseLockFileContent(allocator, content);
+}
+
+/// Parse lock file content from string (used by readLockFile and tests)
+pub fn parseLockFileContent(allocator: std.mem.Allocator, content: []const u8) !LockFile {
     var python_version: ?[]const u8 = null;
     var packages: std.ArrayList(LockFile.PackageEntry) = .empty;
     errdefer {
@@ -183,4 +188,85 @@ pub fn readLockFile(allocator: std.mem.Allocator) !LockFile {
         .python_version = python_version orelse return error.PythonVersionNotFound,
         .packages = try packages.toOwnedSlice(allocator),
     };
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "parseLockFileContent - basic lock file" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\# zap.lock - Fast and Safe Python Package Manager
+        \\# This file is auto-generated. Do not edit manually.
+        \\
+        \\python = "3.12.1"
+        \\
+        \\[[packages]]
+        \\name = "requests"
+        \\version = "2.31.0"
+    ;
+
+    const lock_file = try parseLockFileContent(allocator, content);
+    defer lock_file.deinit(allocator);
+
+    try std.testing.expectEqualStrings("3.12.1", lock_file.python_version);
+    try std.testing.expectEqual(@as(usize, 1), lock_file.packages.len);
+    try std.testing.expectEqualStrings("requests", lock_file.packages[0].name);
+    try std.testing.expectEqualStrings("2.31.0", lock_file.packages[0].version);
+}
+
+test "parseLockFileContent - multiple packages" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\python = "3.11.0"
+        \\
+        \\[[packages]]
+        \\name = "flask"
+        \\version = "3.0.0"
+        \\
+        \\[[packages]]
+        \\name = "werkzeug"
+        \\version = "3.0.1"
+        \\
+        \\[[packages]]
+        \\name = "jinja2"
+        \\version = "3.1.2"
+    ;
+
+    const lock_file = try parseLockFileContent(allocator, content);
+    defer lock_file.deinit(allocator);
+
+    try std.testing.expectEqualStrings("3.11.0", lock_file.python_version);
+    try std.testing.expectEqual(@as(usize, 3), lock_file.packages.len);
+    try std.testing.expectEqualStrings("flask", lock_file.packages[0].name);
+    try std.testing.expectEqualStrings("werkzeug", lock_file.packages[1].name);
+    try std.testing.expectEqualStrings("jinja2", lock_file.packages[2].name);
+}
+
+test "parseLockFileContent - empty packages" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\python = "3.10.5"
+        \\
+        \\[[packages]]
+    ;
+
+    const lock_file = try parseLockFileContent(allocator, content);
+    defer lock_file.deinit(allocator);
+
+    try std.testing.expectEqualStrings("3.10.5", lock_file.python_version);
+    try std.testing.expectEqual(@as(usize, 0), lock_file.packages.len);
+}
+
+test "parseLockFileContent - missing python version" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\[[packages]]
+        \\name = "requests"
+        \\version = "2.31.0"
+    ;
+
+    const result = parseLockFileContent(allocator, content);
+    try std.testing.expectError(error.PythonVersionNotFound, result);
 }

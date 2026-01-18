@@ -32,6 +32,10 @@ pub fn main() !void {
         try cli.listCommand(allocator);
     } else if (std.mem.eql(u8, command, "cache")) {
         try cli.cacheCommand(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "install")) {
+        try cli.installCommand(allocator, args[2..]);
+    } else if (std.mem.eql(u8, command, "python")) {
+        try cli.pythonCommand(allocator, args[2..]);
     } else if (std.mem.eql(u8, command, "version") or std.mem.eql(u8, command, "--version")) {
         try cli.printVersion();
     } else if (std.mem.eql(u8, command, "help") or std.mem.eql(u8, command, "--help")) {

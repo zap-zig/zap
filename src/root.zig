@@ -1,6 +1,13 @@
 //! By convention, root.zig is the root source file when making a library.
 const std = @import("std");
 
+// Re-export modules for library users
+pub const version = @import("version.zig");
+pub const pyproject = @import("pyproject.zig");
+pub const lock = @import("lock.zig");
+pub const cache = @import("cache.zig");
+pub const python_download = @import("python_download.zig");
+
 pub fn bufferedPrint() !void {
     // Stdout is for the actual output of your application, for example if you
     // are implementing gzip, then only the compressed bytes should be sent to

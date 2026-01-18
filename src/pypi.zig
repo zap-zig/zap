@@ -87,12 +87,19 @@ fn parsePackageMetadata(allocator: std.mem.Allocator, json_str: []const u8, pyth
                 }
 
                 // Remove version specifiers directly attached (no space)
-                const operators = [_][]const u8{ ">=", "<=", "==", "~=", ">", "<", "!=", "[" };
+                // Also handle comma-separated constraints like "pluggy<2,>=1.5"
+                // Find the earliest operator position (not just first match in list)
+                const operators = [_][]const u8{ ">=", "<=", "==", "~=", "!=", ">", "<", "[", "," };
+                var earliest_pos: ?usize = null;
                 for (operators) |op| {
                     if (std.mem.indexOf(u8, dep_name, op)) |op_idx| {
-                        dep_name = dep_name[0..op_idx];
-                        break;
+                        if (earliest_pos == null or op_idx < earliest_pos.?) {
+                            earliest_pos = op_idx;
+                        }
                     }
+                }
+                if (earliest_pos) |pos| {
+                    dep_name = dep_name[0..pos];
                 }
 
                 const cleaned = std.mem.trim(u8, dep_name, &std.ascii.whitespace);

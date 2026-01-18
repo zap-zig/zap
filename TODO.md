@@ -148,16 +148,16 @@
 ### Repository Setup
 - [ ] Choose license (MIT recommended)
 - [ ] Create LICENSE file
-- [ ] Update README with actual repo URL
+- [x] Update README with actual repo URL
 - [ ] Add CONTRIBUTING.md
 - [ ] Add CODE_OF_CONDUCT.md
 - [ ] Create .gitignore
 
 ### Documentation
-- [ ] Installation instructions (done!)
-- [ ] Usage examples
-- [ ] API documentation
-- [ ] Architecture overview
+- [x] Installation instructions (done!)
+- [x] Usage examples
+- [x] API documentation (docs site live!)
+- [x] Architecture overview
 - [ ] Comparison with uv/pip/poetry
 
 ### CI/CD

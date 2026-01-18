@@ -20,7 +20,7 @@
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/zap-zig/zap.git
 cd zap
 
 # Build with Zig 0.15.2+
@@ -193,6 +193,15 @@ src/
 ## Why Zig?
 
 - **Performance**: im have nothing to do
+
+## Documentation
+
+📚 **[Full Documentation](https://zap-zig.github.io/zap-docs/)**
+
+### Quick Links:
+- [Installation Guide](https://zap-zig.github.io/zap-docs/docs/install/)
+- [Commands Reference](https://zap-zig.github.io/zap-docs/docs/commands/)
+- [Configuration](https://zap-zig.github.io/zap-docs/docs/config/)
 
 ## Requirements
 

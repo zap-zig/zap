@@ -180,6 +180,15 @@ fn parsePythonRequirement(allocator: std.mem.Allocator, requirement: []const u8)
 }
 
 fn extractPackageName(allocator: std.mem.Allocator, dep_spec: []const u8) ![]const u8 {
+    // For git dependencies like "pkg @ git+https://...", preserve the full spec
+    if (std.mem.indexOf(u8, dep_spec, "@ git+") != null or
+        std.mem.indexOf(u8, dep_spec, "@git+") != null or
+        std.mem.startsWith(u8, dep_spec, "git+") or
+        std.mem.startsWith(u8, dep_spec, "git="))
+    {
+        return try allocator.dupe(u8, dep_spec);
+    }
+
     // Extract "requests>=2.28.0" -> "requests"
     // Extract "numpy" -> "numpy"
 
@@ -314,4 +323,172 @@ pub fn removeDependency(allocator: std.mem.Allocator, file_path: []const u8, pac
         allocator.free(dep);
     }
     allocator.free(old_deps);
+}
+
+// ============================================================================
+// Tests
+// ============================================================================
+
+test "extractPackageName - simple package name" {
+    const allocator = std.testing.allocator;
+    const name = try extractPackageName(allocator, "requests");
+    defer allocator.free(name);
+    try std.testing.expectEqualStrings("requests", name);
+}
+
+test "extractPackageName - with >= version" {
+    const allocator = std.testing.allocator;
+    const name = try extractPackageName(allocator, "requests>=2.28.0");
+    defer allocator.free(name);
+    try std.testing.expectEqualStrings("requests", name);
+}
+
+test "extractPackageName - with == version" {
+    const allocator = std.testing.allocator;
+    const name = try extractPackageName(allocator, "numpy==1.24.0");
+    defer allocator.free(name);
+    try std.testing.expectEqualStrings("numpy", name);
+}
+
+test "extractPackageName - with ~= version" {
+    const allocator = std.testing.allocator;
+    const name = try extractPackageName(allocator, "django~=4.2");
+    defer allocator.free(name);
+    try std.testing.expectEqualStrings("django", name);
+}
+
+test "extractPackageName - with < version" {
+    const allocator = std.testing.allocator;
+    const name = try extractPackageName(allocator, "flask<3.0");
+    defer allocator.free(name);
+    try std.testing.expectEqualStrings("flask", name);
+}
+
+test "parsePythonRequirement - >= operator" {
+    const allocator = std.testing.allocator;
+    const version = try parsePythonRequirement(allocator, ">=3.11");
+    defer allocator.free(version);
+    try std.testing.expectEqualStrings("3.11", version);
+}
+
+test "parsePythonRequirement - == operator" {
+    const allocator = std.testing.allocator;
+    const version = try parsePythonRequirement(allocator, "==3.10");
+    defer allocator.free(version);
+    try std.testing.expectEqualStrings("3.10", version);
+}
+
+test "parsePythonRequirement - ~= operator" {
+    const allocator = std.testing.allocator;
+    const version = try parsePythonRequirement(allocator, "~=3.9");
+    defer allocator.free(version);
+    try std.testing.expectEqualStrings("3.9", version);
+}
+
+test "parsePythonRequirement - no operator" {
+    const allocator = std.testing.allocator;
+    const version = try parsePythonRequirement(allocator, "3.12");
+    defer allocator.free(version);
+    try std.testing.expectEqualStrings("3.12", version);
+}
+
+test "parseTomlContent - basic project" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\[project]
+        \\name = "my-project"
+        \\version = "1.0.0"
+        \\requires-python = ">=3.11"
+        \\dependencies = []
+    ;
+
+    const project = try parseTomlContent(allocator, content);
+    defer project.deinit(allocator);
+
+    try std.testing.expectEqualStrings("my-project", project.name.?);
+    try std.testing.expectEqualStrings("1.0.0", project.version.?);
+    try std.testing.expectEqualStrings("3.11", project.python_version.?);
+    try std.testing.expectEqual(@as(usize, 0), project.dependencies.len);
+}
+
+test "parseTomlContent - with dependencies" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\[project]
+        \\name = "test-project"
+        \\version = "0.1.0"
+        \\dependencies = [
+        \\    "requests>=2.28.0",
+        \\    "numpy",
+        \\]
+    ;
+
+    const project = try parseTomlContent(allocator, content);
+    defer project.deinit(allocator);
+
+    try std.testing.expectEqualStrings("test-project", project.name.?);
+    try std.testing.expectEqual(@as(usize, 2), project.dependencies.len);
+    try std.testing.expectEqualStrings("requests", project.dependencies[0]);
+    try std.testing.expectEqualStrings("numpy", project.dependencies[1]);
+}
+
+test "parseTomlContent - inline dependencies" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\[project]
+        \\name = "inline-test"
+        \\dependencies = ["flask", "django>=4.0"]
+    ;
+
+    const project = try parseTomlContent(allocator, content);
+    defer project.deinit(allocator);
+
+    try std.testing.expectEqual(@as(usize, 2), project.dependencies.len);
+    try std.testing.expectEqualStrings("flask", project.dependencies[0]);
+    try std.testing.expectEqualStrings("django", project.dependencies[1]);
+}
+
+test "parseTomlContent - empty content" {
+    const allocator = std.testing.allocator;
+    const content = "";
+
+    const project = try parseTomlContent(allocator, content);
+    defer project.deinit(allocator);
+
+    try std.testing.expect(project.name == null);
+    try std.testing.expect(project.version == null);
+    try std.testing.expectEqual(@as(usize, 0), project.dependencies.len);
+}
+
+test "parseTomlContent - with comments" {
+    const allocator = std.testing.allocator;
+    const content =
+        \\# This is a comment
+        \\[project]
+        \\# Another comment
+        \\name = "commented-project"
+        \\version = "1.0.0"
+        \\dependencies = []
+    ;
+
+    const project = try parseTomlContent(allocator, content);
+    defer project.deinit(allocator);
+
+    try std.testing.expectEqualStrings("commented-project", project.name.?);
+}
+
+test "parseInlineDependencies - multiple packages" {
+    const allocator = std.testing.allocator;
+    var deps: std.ArrayList([]const u8) = .empty;
+    defer {
+        for (deps.items) |d| allocator.free(d);
+        deps.deinit(allocator);
+    }
+
+    try parseInlineDependencies(allocator, &deps, "\"requests\", \"flask>=2.0\", \"numpy\"");
+
+    try std.testing.expectEqual(@as(usize, 3), deps.items.len);
+    try std.testing.expectEqualStrings("requests", deps.items[0]);
+    try std.testing.expectEqualStrings("flask", deps.items[1]);
+    try std.testing.expectEqualStrings("numpy", deps.items[2]);
 }

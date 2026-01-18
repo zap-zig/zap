@@ -5,6 +5,45 @@ pub const PythonInfo = struct {
     version: []const u8,
 };
 
+/// Find executable in PATH (cross-platform replacement for `which`)
+fn findInPath(allocator: std.mem.Allocator, executable: []const u8) !?[]const u8 {
+    const path_env = std.posix.getenv("PATH") orelse return null;
+
+    var path_iter = std.mem.splitScalar(u8, path_env, ':');
+    while (path_iter.next()) |dir| {
+        if (dir.len == 0) continue;
+
+        const full_path = try std.fmt.allocPrint(allocator, "{s}/{s}", .{ dir, executable });
+        errdefer allocator.free(full_path);
+
+        // Check if file exists and is executable
+        const file = std.fs.cwd().openFile(full_path, .{}) catch {
+            allocator.free(full_path);
+            continue;
+        };
+        defer file.close();
+
+        const stat = file.stat() catch {
+            allocator.free(full_path);
+            continue;
+        };
+
+        // Check if it's a regular file and has execute permission
+        if (stat.kind == .file) {
+            // Check execute permission (user, group, or other)
+            const mode = stat.mode;
+            const has_exec = (mode & 0o111) != 0;
+            if (has_exec) {
+                return full_path;
+            }
+        }
+
+        allocator.free(full_path);
+    }
+
+    return null;
+}
+
 /// Detect Python installation and version
 pub fn detectPython(allocator: std.mem.Allocator, requested_version: ?[]const u8) !PythonInfo {
     const python_candidates = if (requested_version) |ver|
@@ -32,9 +71,13 @@ pub fn detectPython(allocator: std.mem.Allocator, requested_version: ?[]const u8
             }
         }
 
+        // Find Python in PATH using native Zig
+        const py_path = findInPath(allocator, py_cmd) catch continue orelse continue;
+        defer allocator.free(py_path);
+
         const result = std.process.Child.run(.{
             .allocator = allocator,
-            .argv = &[_][]const u8{ py_cmd, "--version" },
+            .argv = &[_][]const u8{ py_path, "--version" },
         }) catch continue;
 
         defer allocator.free(result.stdout);
@@ -50,35 +93,23 @@ pub fn detectPython(allocator: std.mem.Allocator, requested_version: ?[]const u8
                 version_str = version_str[7..];
             }
 
-            // Find the full path
-            const which_result = std.process.Child.run(.{
+            // Validate that Python is actually usable (can import sys)
+            const validate_result = std.process.Child.run(.{
                 .allocator = allocator,
-                .argv = &[_][]const u8{ "which", py_cmd },
+                .argv = &[_][]const u8{ py_path, "-c", "import sys; import encodings" },
             }) catch continue;
-            defer allocator.free(which_result.stdout);
-            defer allocator.free(which_result.stderr);
+            defer allocator.free(validate_result.stdout);
+            defer allocator.free(validate_result.stderr);
 
-            if (which_result.term.Exited == 0) {
-                const path = std.mem.trim(u8, which_result.stdout, &std.ascii.whitespace);
-
-                // Validate that Python is actually usable (can import sys)
-                const validate_result = std.process.Child.run(.{
-                    .allocator = allocator,
-                    .argv = &[_][]const u8{ py_cmd, "-c", "import sys; import encodings" },
-                }) catch continue;
-                defer allocator.free(validate_result.stdout);
-                defer allocator.free(validate_result.stderr);
-
-                if (validate_result.term.Exited != 0) {
-                    // Python is broken, skip it
-                    continue;
-                }
-
-                return PythonInfo{
-                    .path = try allocator.dupe(u8, path),
-                    .version = try allocator.dupe(u8, version_str),
-                };
+            if (validate_result.term.Exited != 0) {
+                // Python is broken, skip it
+                continue;
             }
+
+            return PythonInfo{
+                .path = try allocator.dupe(u8, py_path),
+                .version = try allocator.dupe(u8, version_str),
+            };
         }
     }
 

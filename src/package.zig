@@ -4,6 +4,7 @@ const pypi = @import("pypi.zig");
 const wheel = @import("wheel.zig");
 const lock = @import("lock.zig");
 const cache = @import("cache.zig");
+const build = @import("build.zig");
 
 /// Install a Python package directly from PyPI
 /// Uses global cache and tracks installed packages to avoid duplicates
@@ -111,16 +112,44 @@ fn installPackageInternal(
         if (err != error.FileNotFound) return err;
     };
 
-    if (std.mem.endsWith(u8, metadata.wheel_filename, ".whl")) {
-        try wheel.extractWheel(allocator, wheel_path, extract_dir);
-    } else {
-        try wheel.extractSdist(allocator, wheel_path, extract_dir);
-    }
+    // Determine if this is a wheel or sdist
+    const is_wheel = std.mem.endsWith(u8, metadata.wheel_filename, ".whl");
+    const is_sdist = std.mem.endsWith(u8, metadata.wheel_filename, ".tar.gz") or
+        std.mem.endsWith(u8, metadata.wheel_filename, ".zip");
 
-    // Install to site-packages
-    try stdout.print("  Installing to site-packages...\n", .{});
-    try stdout.flush();
-    try wheel.installWheelToSitePackages(allocator, extract_dir, site_packages);
+    if (is_wheel) {
+        // Direct wheel installation
+        try wheel.extractWheel(allocator, wheel_path, extract_dir);
+
+        // Install to site-packages
+        try stdout.print("  Installing to site-packages...\n", .{});
+        try stdout.flush();
+        try wheel.installWheelToSitePackages(allocator, extract_dir, site_packages);
+    } else if (is_sdist) {
+        // Build wheel from sdist, then install
+        try stdout.print("  Package only available as sdist, building...\n", .{});
+        try stdout.flush();
+
+        // Ensure pip and build deps are available
+        try build.ensureBuildDeps(allocator);
+
+        // Build wheel from sdist
+        const built_wheel_dir = try std.fmt.allocPrint(allocator, "{s}/built", .{cache_dir});
+        defer allocator.free(built_wheel_dir);
+
+        const built_wheel_path = try build.buildSdist(allocator, wheel_path, built_wheel_dir);
+        defer allocator.free(built_wheel_path);
+
+        // Extract and install the built wheel
+        try wheel.extractWheel(allocator, built_wheel_path, extract_dir);
+
+        try stdout.print("  Installing to site-packages...\n", .{});
+        try stdout.flush();
+        try wheel.installWheelToSitePackages(allocator, extract_dir, site_packages);
+    } else {
+        std.debug.print("Error: Unknown package format: {s}\n", .{metadata.wheel_filename});
+        return error.UnsupportedFormat;
+    }
 
     try stdout.print("  Installed {s} {s}\n", .{ metadata.name, metadata.version });
     try stdout.flush();
