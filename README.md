@@ -253,7 +253,8 @@ zig build -Doptimize=ReleaseSafe
 - [ ] Package caching and reuse
 - [ ] Workspace support
 - [ ] Python version installation and management
-- [ ] Cross-platform binaries (Windows, macOS)
+- [x] Cross-platform binaries (Windows, macOS)
+- [ ] Window binary probably will take long cause im lazy and more familiar with unix
 
 ## License
 
