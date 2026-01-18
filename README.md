@@ -254,7 +254,7 @@ zig build -Doptimize=ReleaseSafe
 - [ ] Workspace support
 - [ ] Python version installation and management
 - [x] Cross-platform binaries (Windows, macOS)
-- [ ] Window binary probably will take long cause im lazy and more familiar with unix
+- [ ] Window binary probably will take long cause im lazy and more familiar with unix and right now focused on making it work
 
 ## License
 
@@ -262,4 +262,4 @@ CUSTOM
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+Contributions are welcome! Please feel free to submit a Pull Request. or report an issue if will be some
