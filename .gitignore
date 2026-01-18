@@ -105,3 +105,7 @@ config/keys.json
 *.tmp
 *.temp
 .cache/
+zap-macos-aarch64
+zap-macos-x86_64
+zap-linux-aarch64
+zap-linux-x86_64
