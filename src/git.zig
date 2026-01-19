@@ -189,7 +189,7 @@ pub fn installFromGit(allocator: std.mem.Allocator, git_spec: []const u8) !void 
     const venv_pip = build.getPipPath();
 
     // Create environment with CC/CXX set to zig
-    var env = try build.createBuildEnv(allocator);
+    var env = try build.createBuildEnv(allocator, null);
     defer env.deinit();
 
     const build_result = try std.process.Child.run(.{
@@ -428,7 +428,7 @@ fn installGitDependency(
     const venv_pip = build.getPipPath();
 
     // Create environment with CC/CXX set to zig
-    var env = try build.createBuildEnv(allocator);
+    var env = try build.createBuildEnv(allocator, null);
     defer env.deinit();
 
     const build_result = try std.process.Child.run(.{

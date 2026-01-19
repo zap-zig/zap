@@ -73,6 +73,13 @@ fn installPackageInternal(
 
     // Install dependencies first (recursively)
     for (metadata.dependencies) |dep| {
+        // Skip cchardet on Python 3.13+ as it's incompatible
+        if (std.mem.eql(u8, dep, "cchardet") and std.mem.startsWith(u8, python_version, "3.13")) {
+            try stdout.print("  Skipping cchardet (incompatible with Python {s})\n", .{python_version});
+            try stdout.flush();
+            continue;
+        }
+
         try stdout.print("  Installing dependency: {s}\n", .{dep});
         try stdout.flush();
         installPackageInternal(allocator, dep, installed, pkg_cache, python_version, site_packages) catch |err| {

@@ -1,6 +1,7 @@
 const std = @import("std");
 const wheel = @import("wheel.zig");
 const venv = @import("venv.zig");
+const pyproject = @import("pyproject.zig");
 
 /// Find the zig executable path
 /// Returns the path to zig, or null if not found
@@ -41,9 +42,10 @@ fn findZigPath(allocator: std.mem.Allocator) !?[]const u8 {
     return null;
 }
 
-/// Create environment map with CC and CXX set to zig cc/c++
+/// Create environment map with CC and CXX set based on build_type
+/// build_type: "native_compiler" -> use gcc/g++, "zig_compiler" or null -> use zig cc/c++
 /// This is public so git.zig can use it for building git dependencies
-pub fn createBuildEnv(allocator: std.mem.Allocator) !std.process.EnvMap {
+pub fn createBuildEnv(allocator: std.mem.Allocator, build_type: ?[]const u8) !std.process.EnvMap {
     var env = std.process.EnvMap.init(allocator);
     errdefer env.deinit();
 
@@ -58,19 +60,36 @@ pub fn createBuildEnv(allocator: std.mem.Allocator) !std.process.EnvMap {
         }
     }
 
-    // Find zig and set CC/CXX
-    if (try findZigPath(allocator)) |zig_path| {
-        defer allocator.free(zig_path);
+    // Set CC/CXX based on build_type
+    // Default to native compiler to avoid issues with zig and Python 3.13+ headers
+    const use_native = build_type == null or (build_type != null and std.mem.eql(u8, build_type.?, "native_compiler"));
+    const use_zig = build_type != null and std.mem.eql(u8, build_type.?, "zig_compiler");
 
-        const cc_cmd = try std.fmt.allocPrint(allocator, "{s} cc", .{zig_path});
-        const cxx_cmd = try std.fmt.allocPrint(allocator, "{s} c++", .{zig_path});
+    if (use_native) {
+        // Use native compiler (gcc/g++)
+        if (env.get("CC") == null) {
+            try env.put("CC", "gcc");
+        }
+        if (env.get("CXX") == null) {
+            try env.put("CXX", "g++");
+        }
+    } else if (use_zig) {
+        // Use zig compiler
+        if (try findZigPath(allocator)) |zig_path| {
+            defer allocator.free(zig_path);
 
-        // Note: EnvMap.put copies the strings, so we need to free ours
-        try env.put("CC", cc_cmd);
-        try env.put("CXX", cxx_cmd);
+            if (env.get("CC") == null) {
+                const cc_cmd = try std.fmt.allocPrint(allocator, "{s} cc", .{zig_path});
+                defer allocator.free(cc_cmd);
+                try env.put("CC", cc_cmd);
+            }
 
-        allocator.free(cc_cmd);
-        allocator.free(cxx_cmd);
+            if (env.get("CXX") == null) {
+                const cxx_cmd = try std.fmt.allocPrint(allocator, "{s} c++", .{zig_path});
+                defer allocator.free(cxx_cmd);
+                try env.put("CXX", cxx_cmd);
+            }
+        }
     }
 
     return env;
@@ -134,8 +153,18 @@ pub fn buildSdist(allocator: std.mem.Allocator, sdist_path: []const u8, output_d
     // Try python -m build first (PEP 517 compliant), fallback to pip wheel
     const venv_python = ".venv/bin/python";
 
-    // Create environment with CC/CXX set to zig
-    var env = try createBuildEnv(allocator);
+    // Parse pyproject.toml for build_type
+    const project = pyproject.parsePyProject(allocator, "pyproject.toml") catch pyproject.PyProject{
+        .name = null,
+        .version = null,
+        .dependencies = &[_][]const u8{},
+        .python_version = null,
+        .build_type = null,
+    };
+    defer project.deinit(allocator);
+
+    // Create environment with CC/CXX set based on build_type
+    var env = try createBuildEnv(allocator, project.build_type);
     defer env.deinit();
 
     // First, try using build module (cleaner, PEP 517)
@@ -174,8 +203,21 @@ pub fn buildSdist(allocator: std.mem.Allocator, sdist_path: []const u8, output_d
 fn buildWithPip(allocator: std.mem.Allocator, src_dir: []const u8, output_dir: []const u8) ![]const u8 {
     const venv_pip = getPipPath();
 
-    // Create environment with CC/CXX set to zig
-    var env = try createBuildEnv(allocator);
+    // Parse pyproject.toml for build_type (from src_dir)
+    const pyproject_path = try std.fmt.allocPrint(allocator, "{s}/pyproject.toml", .{src_dir});
+    defer allocator.free(pyproject_path);
+
+    const project = pyproject.parsePyProject(allocator, pyproject_path) catch pyproject.PyProject{
+        .name = null,
+        .version = null,
+        .dependencies = &[_][]const u8{},
+        .python_version = null,
+        .build_type = null,
+    };
+    defer project.deinit(allocator);
+
+    // Create environment with CC/CXX set based on build_type
+    var env = try createBuildEnv(allocator, project.build_type);
     defer env.deinit();
 
     const result = try std.process.Child.run(.{

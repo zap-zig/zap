@@ -5,6 +5,7 @@ pub const PyProject = struct {
     version: ?[]const u8,
     dependencies: [][]const u8,
     python_version: ?[]const u8,
+    build_type: ?[]const u8,
 
     pub fn deinit(self: PyProject, allocator: std.mem.Allocator) void {
         if (self.name) |n| allocator.free(n);
@@ -14,6 +15,7 @@ pub const PyProject = struct {
         }
         allocator.free(self.dependencies);
         if (self.python_version) |pv| allocator.free(pv);
+        if (self.build_type) |bt| allocator.free(bt);
     }
 };
 
@@ -27,6 +29,7 @@ pub fn parsePyProject(allocator: std.mem.Allocator, file_path: []const u8) !PyPr
                 .version = null,
                 .dependencies = &[_][]const u8{},
                 .python_version = null,
+                .build_type = null,
             };
         }
         return err;
@@ -44,6 +47,7 @@ fn parseTomlContent(allocator: std.mem.Allocator, content: []const u8) !PyProjec
     var version: ?[]const u8 = null;
     var dependencies: std.ArrayList([]const u8) = .empty;
     var python_version: ?[]const u8 = null;
+    var build_type: ?[]const u8 = null;
 
     errdefer {
         if (name) |n| allocator.free(n);
@@ -51,6 +55,7 @@ fn parseTomlContent(allocator: std.mem.Allocator, content: []const u8) !PyProjec
         for (dependencies.items) |dep| allocator.free(dep);
         dependencies.deinit(allocator);
         if (python_version) |pv| allocator.free(pv);
+        if (build_type) |bt| allocator.free(bt);
     }
 
     var lines = std.mem.splitScalar(u8, content, '\n');
@@ -106,6 +111,15 @@ fn parseTomlContent(allocator: std.mem.Allocator, content: []const u8) !PyProjec
                 continue;
             }
 
+            // Parse build_type
+            if (std.mem.startsWith(u8, trimmed, "build_type = \"")) {
+                const start = "build_type = \"".len;
+                if (std.mem.indexOf(u8, trimmed[start..], "\"")) |end| {
+                    build_type = try allocator.dupe(u8, trimmed[start .. start + end]);
+                }
+                continue;
+            }
+
             // Parse dependencies array start
             if (std.mem.eql(u8, trimmed, "dependencies = [")) {
                 in_dependencies_array = true;
@@ -157,6 +171,7 @@ fn parseTomlContent(allocator: std.mem.Allocator, content: []const u8) !PyProjec
         .version = version,
         .dependencies = try dependencies.toOwnedSlice(allocator),
         .python_version = python_version,
+        .build_type = build_type,
     };
 }
 
@@ -245,6 +260,10 @@ pub fn writePyProject(_: std.mem.Allocator, project: PyProject, file_path: []con
 
     if (project.python_version) |pv| {
         try writer.print("requires-python = \">={s}\"\n", .{pv});
+    }
+
+    if (project.build_type) |bt| {
+        try writer.print("build_type = \"{s}\"\n", .{bt});
     }
 
     // Write dependencies

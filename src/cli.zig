@@ -136,6 +136,7 @@ pub fn initCommand(allocator: std.mem.Allocator, args: []const []const u8) !void
             .version = null,
             .dependencies = &[_][]const u8{},
             .python_version = try allocator.dupe(u8, py_version_str.?),
+            .build_type = null,
         };
         defer if (pyproj.python_version) |pv| allocator.free(pv);
 

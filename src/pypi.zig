@@ -1,5 +1,6 @@
 const std = @import("std");
 const http = @import("http.zig");
+const python_download = @import("python_download.zig");
 
 pub const PackageMetadata = struct {
     name: []const u8,
@@ -126,7 +127,10 @@ fn parsePackageMetadata(allocator: std.mem.Allocator, json_str: []const u8, pyth
     };
     defer allocator.free(py_major_minor);
 
-    // Try to find a compatible wheel (cp312, cp311, cp310, py3, or universal)
+    // Detect current platform to select compatible wheels
+    const current_platform = python_download.Platform.detect();
+    
+    // Try to find a compatible wheel (cp312, cp311, cp310, py3, or universal) with platform matching
     for (urls.array.items) |url_item| {
         if (url_item != .object) continue;
 
@@ -141,17 +145,20 @@ fn parsePackageMetadata(allocator: std.mem.Allocator, json_str: []const u8, pyth
 
             const filename = filename_val.string;
 
-            // Check if wheel is compatible
+            // Check if wheel is compatible with Python version
             const py_tag = try std.fmt.allocPrint(allocator, "cp{s}{s}", .{
                 py_major_minor[0..1],
                 py_major_minor[2..],
             });
             defer allocator.free(py_tag);
 
-            if (std.mem.indexOf(u8, filename, py_tag) != null or
-                std.mem.indexOf(u8, filename, "py3") != null or
-                std.mem.indexOf(u8, filename, "py2.py3") != null or
-                std.mem.indexOf(u8, filename, "none-any") != null)
+            // Check platform compatibility
+            const platform_compatible = checkPlatformCompatibility(allocator, filename, current_platform) catch true;
+
+            if ((std.mem.indexOf(u8, filename, py_tag) != null or
+                 std.mem.indexOf(u8, filename, "py3") != null or
+                 std.mem.indexOf(u8, filename, "py2.py3") != null or
+                 std.mem.indexOf(u8, filename, "none-any") != null) and platform_compatible)
             {
                 wheel_url = try allocator.dupe(u8, url_val.string);
                 wheel_filename = try allocator.dupe(u8, filename);
@@ -193,6 +200,110 @@ fn parsePackageMetadata(allocator: std.mem.Allocator, json_str: []const u8, pyth
         .wheel_url = wheel_url.?,
         .wheel_filename = wheel_filename.?,
     };
+}
+
+/// Check if a wheel filename is compatible with the current platform
+fn checkPlatformCompatibility(allocator: std.mem.Allocator, filename: []const u8, platform: python_download.Platform) !bool {
+    _ = allocator; // unused parameter
+    
+    // Extract platform tags from the wheel filename
+    // Format: {distribution}-{version}(-{build tag})?-{python tag}-{abi tag}-{platform tag}.whl
+    
+    // Remove the .whl extension first
+    const trimmed_filename = if (std.mem.endsWith(u8, filename, ".whl")) 
+        filename[0 .. filename.len - 4] 
+    else 
+        filename;
+    
+    // Find the last 2 hyphens to isolate the platform tag
+    // We need to find the last two hyphens to separate the last 2 components
+    var last_hyphen: ?usize = null;
+    var second_last_hyphen: ?usize = null;
+    
+    var i: usize = 0;
+    while (i < trimmed_filename.len) : (i += 1) {
+        if (trimmed_filename[i] == '-') {
+            second_last_hyphen = last_hyphen;
+            last_hyphen = i;
+        }
+    }
+    
+    if (last_hyphen) |last_pos| {
+        const platform_part = trimmed_filename[last_pos + 1 ..];  // Everything after the last hyphen
+        
+        // Check for platform compatibility based on current OS
+        if (std.mem.eql(u8, platform.os, "unknown-linux")) {
+            // For Linux, we want wheels tagged with linux, not macosx, not win
+            if (std.mem.containsAtLeast(u8, platform_part, 1, "macosx") or
+                std.mem.containsAtLeast(u8, platform_part, 1, "win32") or
+                std.mem.containsAtLeast(u8, platform_part, 1, "win_amd64") or
+                std.mem.containsAtLeast(u8, platform_part, 1, "universal2"))
+            {
+                return false;  // Incompatible platform
+            }
+            
+            // Check architecture compatibility for Linux
+            if (std.mem.eql(u8, platform.arch, "x86_64")) {
+                if (std.mem.containsAtLeast(u8, platform_part, 1, "aarch64") or
+                    std.mem.containsAtLeast(u8, platform_part, 1, "armv") or
+                    std.mem.containsAtLeast(u8, platform_part, 1, "arm64"))
+                {
+                    return false;  // Architecture mismatch - requesting x86_64 but got ARM
+                }
+                
+                // Accept x86_64, amd64, i386, i686, or any platform tags
+                if (!std.mem.containsAtLeast(u8, platform_part, 1, "x86_64") and
+                    !std.mem.containsAtLeast(u8, platform_part, 1, "amd64") and
+                    !std.mem.containsAtLeast(u8, platform_part, 1, "i686") and
+                    !std.mem.containsAtLeast(u8, platform_part, 1, "i386") and
+                    !std.mem.containsAtLeast(u8, platform_part, 1, "any"))
+                {
+                    return false;  // Architecture mismatch - x86_64 but didn't match
+                }
+            } else if (std.mem.eql(u8, platform.arch, "aarch64")) {
+                if (std.mem.containsAtLeast(u8, platform_part, 1, "x86_64") or
+                    std.mem.containsAtLeast(u8, platform_part, 1, "amd64") or
+                    std.mem.containsAtLeast(u8, platform_part, 1, "i686") or
+                    std.mem.containsAtLeast(u8, platform_part, 1, "i386"))
+                {
+                    return false;  // Architecture mismatch - requesting ARM but got x86
+                }
+                
+                // Accept aarch64, arm64, or any platform tags
+                if (!std.mem.containsAtLeast(u8, platform_part, 1, "aarch64") and
+                    !std.mem.containsAtLeast(u8, platform_part, 1, "arm64") and
+                    !std.mem.containsAtLeast(u8, platform_part, 1, "any"))
+                {
+                    return false;  // Architecture mismatch - ARM but didn't match
+                }
+            }
+        } else if (std.mem.eql(u8, platform.os, "apple")) {
+            // For macOS, we want wheels tagged with macosx
+            if (!std.mem.containsAtLeast(u8, platform_part, 1, "macosx") and
+                !std.mem.containsAtLeast(u8, platform_part, 1, "universal2") and
+                !std.mem.containsAtLeast(u8, platform_part, 1, "any"))
+            {
+                return false;  // Incompatible platform
+            }
+        } else if (std.mem.eql(u8, platform.os, "pc-windows")) {
+            // For Windows, we want wheels tagged with win32 or win_amd64
+            if (!std.mem.containsAtLeast(u8, platform_part, 1, "win32") and
+                !std.mem.containsAtLeast(u8, platform_part, 1, "win_amd64") and
+                !std.mem.containsAtLeast(u8, platform_part, 1, "any"))
+            {
+                return false;  // Incompatible platform
+            }
+        }
+        
+        // Check for "any" platform (universal wheels)
+        if (std.mem.eql(u8, platform_part, "any")) {
+            return true;  // Universal wheel is always compatible
+        }
+    } else {
+        return true; // If we can't parse, assume compatibility
+    }
+
+    return true;  // Assume compatibility if we can't determine
 }
 
 /// Download a file from URL (delegates to native HTTP module)
